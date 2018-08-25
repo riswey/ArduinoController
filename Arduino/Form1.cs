@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Windows.Forms;
 using System.Threading.Tasks;
+using System.Drawing;
 
 namespace Arduino
 {
 
     enum CMD: byte
     {
-        DESIREDSPEED = 32,
+        DESIREDSPEED = 34,
         START,
         STOP,
         REQUESTSPEED
@@ -80,6 +81,7 @@ namespace Arduino
                     state = STATE.Running;
                     SendCommand(CMD.DESIREDSPEED);
                     SendCommand(CMD.START);
+                    AsyncColor(btnStart, Color.Orange); 
                     Task task = Task.Delay(5000).ContinueWith(t => ProcessEvent(EVENT.Lock));
                     break;
                 case EVENT.Stop:
@@ -92,16 +94,20 @@ namespace Arduino
                     state = STATE.Ready;
                     SendCommand(CMD.STOP);
                     AsyncDisable(this.btnSetSpeed, false);
+                    AsyncColor(btnStart, default(Color) );
                     AsyncText(btnStart, "Start");
                     break;
                 case EVENT.Lock:
                     state = STATE.Locked;
                     AsyncText(btnStart, "Unlock");
+                    AsyncColor(btnStart, Color.Red );
                     AsyncDisable(this.btnSetSpeed);
                     break;
                 case EVENT.Unlock:
                     state = STATE.Unlocked;
                     AsyncText(btnStart, "Lock");
+                    AsyncColor(btnStart, Color.Orange);
+
                     AsyncDisable(this.btnSetSpeed, false);
                     break;
             }
@@ -124,6 +130,11 @@ namespace Arduino
         private void AsyncText(ToolStripLabel obj, string text)
         {
             obj.GetCurrentParent().Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
+        }
+
+        private void AsyncColor(Control obj, Color color)
+        {
+            obj.Invoke(new Action( () => obj.BackColor = color) );
         }
 
         private void AsyncDisable(Control obj, bool disable = true)
@@ -212,11 +223,6 @@ namespace Arduino
         }
 
         private void timer1_Tick(object sender, EventArgs e)
-        {
-            SendCommand(CMD.REQUESTSPEED);
-        }
-
-        private void button1_Click(object sender, EventArgs e)
         {
             SendCommand(CMD.REQUESTSPEED);
         }
