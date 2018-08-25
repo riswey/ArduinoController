@@ -192,8 +192,6 @@ namespace Arduino
             switch ((CMD)cmd)
             {
                 case CMD.REQUESTSPEED:
-                    AsyncText(toolStripStatusLabel1, "Speed: " + data);
-
                     AsyncText(lblCurrentSpeed, data );
                     break;
                 default:
