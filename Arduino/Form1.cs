@@ -8,10 +8,15 @@ namespace Arduino
 
     enum CMD: byte
     {
-        DESIREDSPEED = 34,
+        TEST = 32,
         START,
         STOP,
-        REQUESTSPEED
+        SETSPEED,
+        REQSPEED,
+        SETP,
+        SETI,
+        SETD,
+        REQCSV_PID      //return a comma separated list of values
     };
 
     enum STATE {Ready = 0, Running, Locked, Unlocked}       //2 bit
@@ -79,7 +84,7 @@ namespace Arduino
                 case EVENT.Start:
                     timer1.Start();
                     state = STATE.Running;
-                    SendCommand(CMD.DESIREDSPEED);
+                    SendCommand(CMD.SETSPEED);
                     SendCommand(CMD.START);
                     AsyncColor(btnStart, Color.Orange); 
                     Task task = Task.Delay(5000).ContinueWith(t => ProcessEvent(EVENT.Lock));
@@ -132,6 +137,11 @@ namespace Arduino
             obj.GetCurrentParent().Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
         }
 
+        private void AsyncNUD(NumericUpDown obj, decimal value)
+        {
+            obj.Invoke(new Action<decimal>(n => obj.Value = value), new object[] { value });
+        }
+
         private void AsyncColor(Control obj, Color color)
         {
             obj.Invoke(new Action( () => obj.BackColor = color) );
@@ -147,8 +157,17 @@ namespace Arduino
             string data = "";
             switch ((CMD)cmd)
             {
-                case CMD.DESIREDSPEED:
+                case CMD.SETSPEED:
                     data = nudDesireSpeed.Value.ToString();
+                    break;
+                case CMD.SETP:
+                    data = nudP.Value.ToString();
+                    break;
+                case CMD.SETI:
+                    data = nudI.Value.ToString();
+                    break;
+                case CMD.SETD:
+                    data = nudD.Value.ToString();
                     break;
             }
 
@@ -158,6 +177,8 @@ namespace Arduino
             {
                 try
                 {
+                    AsyncText(lblPacketOut, cmd + " " + data);
+
                     serialPort1.Write(packet);
                 }
                 catch (Exception ex)
@@ -179,7 +200,7 @@ namespace Arduino
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message);
+                    MessageBox.Show(ex.Message, "Serial Port Error", MessageBoxButtons.OK,MessageBoxIcon.Error);
                 }
             }
         }
@@ -189,10 +210,22 @@ namespace Arduino
             string trimmed = packet.TrimEnd(Environment.NewLine.ToCharArray());
             if (SerialEventsController.DecodePacket(trimmed, out byte cmd, out string data) != 0) return;
 
+            AsyncText(lblPacketIn, (CMD)cmd + " " + data);
+
             switch ((CMD)cmd)
             {
-                case CMD.REQUESTSPEED:
+                case CMD.REQSPEED:
                     AsyncText(lblCurrentSpeed, data );
+                    break;
+                case CMD.REQCSV_PID:
+                    string[] pid = data.Split(',');
+                    if (pid.Length != 3) return;
+                    AsyncNUD(nudP, Decimal.Parse(pid[0]) );
+                    AsyncNUD(nudI, Decimal.Parse(pid[1]) );
+                    AsyncNUD(nudD, Decimal.Parse(pid[2]) );
+                    break;
+                case CMD.TEST:
+                    MessageBox.Show(data);
                     break;
                 default:
                     AsyncText(toolStripStatusLabel1, "Unknown CMD: " + cmd.ToString() );
@@ -217,12 +250,41 @@ namespace Arduino
 
         private void btnSetSpeed_Click(object sender, EventArgs e)
         {
-            SendCommand(CMD.DESIREDSPEED);
+            SendCommand(CMD.SETSPEED);
+            //now request it
+            SendCommand(CMD.REQSPEED);
         }
 
         private void timer1_Tick(object sender, EventArgs e)
         {
-            SendCommand(CMD.REQUESTSPEED);
+            SendCommand(CMD.REQSPEED);
+        }
+
+        private void nudP_ValueChanged(object sender, EventArgs e)
+        {
+            SendCommand(CMD.SETP);
+        }
+
+        private void nudI_ValueChanged(object sender, EventArgs e)
+        {
+            SendCommand(CMD.SETI);
+        }
+
+        private void nudD_ValueChanged(object sender, EventArgs e)
+        {
+            SendCommand(CMD.SETD);
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            //Get current device state
+            SendCommand(CMD.REQSPEED);
+            SendCommand(CMD.REQCSV_PID);
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            SendCommand(CMD.TEST);
         }
     }
 }
