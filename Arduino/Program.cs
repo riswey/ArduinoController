@@ -15,13 +15,13 @@ namespace Arduino
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            //try
-            //{
+            try
+            {
                 Application.Run(new Form1());
-            //} 
-            //catch (Exception ex) {
-            //    MessageBox.Show(ex.Message, "Application Fail",MessageBoxButtons.OK,MessageBoxIcon.Error);
-            //}
+            } 
+            catch (Exception ex) {
+                MessageBox.Show(ex.Message, "Application Fail",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
         }
     }
 }

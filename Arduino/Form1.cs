@@ -9,8 +9,8 @@ namespace Arduino
 {
     public partial class Form1 : Form
     {
-        TestSerialPort serialPort1 = new TestSerialPort();
-        //SerialPort serialPort1 = new SerialPort();
+        //TestSerialPort serialPort1 = new TestSerialPort();
+        SerialPort serialPort1 = new SerialPort();
    
         string TERMINAL = "\n";
         STATE state = STATE.Ready;
@@ -27,7 +27,8 @@ namespace Arduino
             serialPort1.Open();
             serialPort1.DiscardInBuffer();  //clear anything
 
-            serialPort1.parentfm = this;
+            //testing
+            //serialPort1.parentfm = this;
 
         }
 
