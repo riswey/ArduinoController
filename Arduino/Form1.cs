@@ -2,45 +2,71 @@
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using System.Drawing;
+using System.Collections.Generic;
+using System.IO.Ports;
 
 namespace Arduino
 {
-
-    enum CMD: byte
-    {
-        TEST = 32,
-        START,
-        STOP,
-        SETSPEED,
-        REQSPEED,
-        SETP,
-        SETI,
-        SETD,
-        REQCSV_PID      //return a comma separated list of values
-    };
-
-    enum STATE {Ready = 0, Running, Locked, Unlocked}       //2 bit
-    enum EVENT {Start = 0, Stop, Lock, Unlock}              //2 bit
-
     public partial class Form1 : Form
     {
-        string SIGNATURE = "\x0E\x0E";
+        TestSerialPort serialPort1 = new TestSerialPort();
+        //SerialPort serialPort1 = new SerialPort();
+   
         string TERMINAL = "\n";
         STATE state = STATE.Ready;
         Task task = null;
+        ParameterState log = new ParameterState();
 
         public Form1()
         {
             InitializeComponent();
+
+            serialPort1.PortName = SearchPorts();
+
+            serialPort1.BaudRate = 9600;
             serialPort1.Open();
             serialPort1.DiscardInBuffer();  //clear anything
+
+            serialPort1.parentfm = this;
+
+        }
+
+        private string SearchPorts()
+        {
+            string[] ports = SerialPort.GetPortNames();
+
+            cbxPort.Items.Clear();
+
+            foreach (string port in ports)
+            {
+                cbxPort.Items.Add(port);
+            }
+
+            if (cbxPort.Items.Count > 0)
+            {
+            } else {
+                cbxPort.Items.Add("(None)");
+            }
+
+            cbxPort.SelectedIndex = cbxPort.Items.Count - 1;
+
+            return cbxPort.SelectedItem.ToString();
+
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (timer1 != null) timer1.Dispose();
-            if (task != null) task.Dispose();
+            //if (task != null) task.Dispose();
             if (serialPort1 != null) serialPort1.Close();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            //Get current device state
+            SendCommand(CMD.GETPID);
+            AsyncText(lblState, state.ToString());
+
         }
 
         private void ProcessEvent(EVENT e) {
@@ -55,6 +81,9 @@ namespace Arduino
             {
                 case 0:     //Start + Ready
                     ChangeState(EVENT.Start);
+                    break;
+                case 1:     //Start + Running
+                    ChangeState(EVENT.Lock);
                     break;
                 case 2:     //Start + Locked
                     ChangeState(EVENT.Unlock);
@@ -82,103 +111,102 @@ namespace Arduino
             switch (e)
             {
                 case EVENT.Start:
-                    timer1.Start();
-                    state = STATE.Running;
-                    SendCommand(CMD.SETSPEED);
+                    SendCommand(CMD.SETFREQ);
+                    SendCommand(CMD.GETTARGETFREQ);
                     SendCommand(CMD.START);
-                    AsyncColor(btnStart, Color.Orange); 
-                    Task task = Task.Delay(5000).ContinueWith(t => ProcessEvent(EVENT.Lock));
                     break;
                 case EVENT.Stop:
+                    SendCommand(CMD.STOP);
+                    break;
+                case EVENT.Lock:
+                    SendCommand(CMD.SETLOCK);
+                    break;
+                case EVENT.Unlock:
+                    SendCommand(CMD.SETUNLOCK);
+                    break;
+            }
+        }
+
+        private void ProcessACK(CMD cmd)
+        {
+            switch (cmd)
+            {
+                case CMD.START:
+                    timer1.Start();
+                    log.Start();
+                    state = STATE.Running;
+                    AsyncColor(btnStart, Color.Orange);
+                    //Task task = Task.Delay(5000).ContinueWith(t => ProcessEvent(EVENT.Lock));
+                    break;
+                case CMD.STOP:
+                    /*
                     if (this.task != null)
                     {
                         this.task.Dispose();
                         this.task = null;
                     }
+                    */
                     timer1.Stop();
                     state = STATE.Ready;
-                    SendCommand(CMD.STOP);
                     AsyncDisable(this.btnSetSpeed, false);
-                    AsyncColor(btnStart, default(Color) );
+                    AsyncColor(btnStart, default(Color));
                     AsyncText(btnStart, "Start");
                     break;
-                case EVENT.Lock:
+                case CMD.SETLOCK:
                     state = STATE.Locked;
                     AsyncText(btnStart, "Unlock");
-                    AsyncColor(btnStart, Color.Red );
+                    AsyncColor(btnStart, Color.Red);
                     AsyncDisable(this.btnSetSpeed);
                     break;
-                case EVENT.Unlock:
+                case CMD.SETUNLOCK:
                     state = STATE.Unlocked;
                     AsyncText(btnStart, "Lock");
                     AsyncColor(btnStart, Color.Orange);
-
                     AsyncDisable(this.btnSetSpeed, false);
                     break;
+                case CMD.SETPULSEDELAY:
+                    AsyncText(toolStripStatusLabel1, "Pulse Delay set.");
+                    break;
+                case CMD.SETPID:
+                    AsyncText(toolStripStatusLabel1, "PID set.");
+                    break;
+                case CMD.SETFREQ:
+                    AsyncText(toolStripStatusLabel1, "Target Rotor Frequency set.");
+                    break;
             }
-            //New state
-            AsyncText(toolStripStatusLabel1, state.ToString());
+
+            AsyncText(lblState, state.ToString());
+
+            //should we have a queue to time out unsuccessful async tasks
         }
 
-        private void AsyncText(Control obj, string text, bool append = false)
-        {
-            if (append)
-            {
-                obj.Invoke(new Action<string>(n => obj.Text += n), new object[] { text });
-            }
-            else
-            {
-                obj.Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
-            }
-        }
-
-        private void AsyncText(ToolStripLabel obj, string text)
-        {
-            obj.GetCurrentParent().Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
-        }
-
-        private void AsyncNUD(NumericUpDown obj, decimal value)
-        {
-            obj.Invoke(new Action<decimal>(n => obj.Value = value), new object[] { value });
-        }
-
-        private void AsyncColor(Control obj, Color color)
-        {
-            obj.Invoke(new Action( () => obj.BackColor = color) );
-        }
-
-        private void AsyncDisable(Control obj, bool disable = true)
-        {
-            obj.Invoke(new Action(() => obj.Enabled = !disable));
-        }
 
         void SendCommand(CMD cmd)
         {
             string data = "";
             switch ((CMD)cmd)
             {
-                case CMD.SETSPEED:
+                case CMD.SETFREQ:
                     data = nudDesireSpeed.Value.ToString();
                     break;
-                case CMD.SETP:
+                case CMD.SETPULSEDELAY:
+                    //data = nudDesireSpeed.Value.ToString();
+                    break;
+                case CMD.SETPID:
                     data = nudP.Value.ToString();
-                    break;
-                case CMD.SETI:
-                    data = nudI.Value.ToString();
-                    break;
-                case CMD.SETD:
-                    data = nudD.Value.ToString();
+                    data += " " + nudI.Value.ToString();
+                    data += " " + nudD.Value.ToString();
                     break;
             }
 
-            string packet = SerialEventsController.EncodePacket((byte)cmd, data);
+            string packet = Enums.CMDEncode[cmd] + " " + data + TERMINAL;
+
+            AsyncText(tbxHistory, packet + "\t" + cmd.ToString() + "\r\n", -1);
 
             if (serialPort1.IsOpen)
             {
                 try
                 {
-                    AsyncText(lblPacketOut, cmd + " " + data);
-
                     serialPort1.Write(packet);
                 }
                 catch (Exception ex)
@@ -189,46 +217,58 @@ namespace Arduino
 
         }
 
-        private void serialPort1_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
+        //TODO: Made public for testing
+        public void serialPort1_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
             if (serialPort1.IsOpen)
             {
-                try
-                {
-                    string packet = serialPort1.ReadLine();
-                    HandlePacket(packet);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.Message, "Serial Port Error", MessageBoxButtons.OK,MessageBoxIcon.Error);
-                }
+                string packet = serialPort1.ReadLine();
+                string trimmed = packet.TrimEnd(Environment.NewLine.ToCharArray());
+                HandlePacket(trimmed);
             }
         }
 
         void HandlePacket(string packet)
         {
-            string trimmed = packet.TrimEnd(Environment.NewLine.ToCharArray());
-            if (SerialEventsController.DecodePacket(trimmed, out byte cmd, out string data) != 0) return;
+            AsyncText(tbxHistory, packet + "\r\n", -1);
 
-            AsyncText(lblPacketIn, (CMD)cmd + " " + data);
+            string[] data = packet.Split(' ');
+            DATATYPES cmd = Enums.DATATYPEDecode[data[0]];
 
-            switch ((CMD)cmd)
+            switch (cmd)
             {
-                case CMD.REQSPEED:
-                    AsyncText(lblCurrentSpeed, data );
+                case DATATYPES.GETPULSEDELAY:
+                    log.pulse_delay = int.Parse(data[1]);
+                    AsyncText(lblPulseDelay, data[1]);
                     break;
-                case CMD.REQCSV_PID:
-                    string[] pid = data.Split(',');
-                    if (pid.Length != 3) return;
-                    AsyncNUD(nudP, Decimal.Parse(pid[0]) );
-                    AsyncNUD(nudI, Decimal.Parse(pid[1]) );
-                    AsyncNUD(nudD, Decimal.Parse(pid[2]) );
+                case DATATYPES.GETTARGETFREQ:
+                    log.target_speed = float.Parse(data[1]);
+                    AsyncNUD(nudDesireSpeed, Decimal.Parse(data[1]));
                     break;
-                case CMD.TEST:
-                    MessageBox.Show(data);
+                case DATATYPES.GETROTORFREQ:
+                    log.rotor_speed = float.Parse(data[1]);
+                    AsyncText(lblCurrentSpeed, data[1]);
+                    break;
+                case DATATYPES.GETMINMAXPERIODS:
+                    log.min_period = long.Parse(data[1]);
+                    log.max_period = long.Parse(data[2]);
+                    AsyncText(lblMinRotorPeriod, data[1]);
+                    AsyncText(lblMaxRotorPeriod, data[2]);
+                    break;
+                case DATATYPES.GETPID:
+                    log.p = float.Parse(data[1]);
+                    log.i = float.Parse(data[2]);
+                    log.d = float.Parse(data[3]);
+                    AsyncNUD(nudP, Decimal.Parse(data[1]) );
+                    AsyncNUD(nudI, Decimal.Parse(data[2]) );
+                    AsyncNUD(nudD, Decimal.Parse(data[3]) );
+                    break;
+                case DATATYPES.ACK:
+                    CMD ackcmd = Enums.CMDDecode[data[1]];
+                    ProcessACK( ackcmd );
                     break;
                 default:
-                    AsyncText(toolStripStatusLabel1, "Unknown CMD: " + cmd.ToString() );
+                    AsyncText(toolStripStatusLabel1, "Unknown Packet: " + packet );
                     break;
             }
         }
@@ -250,42 +290,116 @@ namespace Arduino
 
         private void btnSetSpeed_Click(object sender, EventArgs e)
         {
-            SendCommand(CMD.SETSPEED);
-            //now request it
-            SendCommand(CMD.REQSPEED);
+            SendCommand(CMD.SETFREQ);
         }
 
+        int timercycle = 0;
         private void timer1_Tick(object sender, EventArgs e)
         {
-            SendCommand(CMD.REQSPEED);
+            SendCommand(CMD.GETROTORFREQ);
+            if ((timercycle = (++timercycle) % 4) == 0)
+            {
+                SendCommand(CMD.GETMINMAXPERIODS);
+                SendCommand(CMD.GETPULSEDELAY);
+                SendCommand(CMD.GETPID);
+                SendCommand(CMD.GETTARGETFREQ);
+                log.Write();
+            }
+
         }
 
         private void nudP_ValueChanged(object sender, EventArgs e)
         {
-            SendCommand(CMD.SETP);
+            SendCommand(CMD.SETPID);
         }
 
         private void nudI_ValueChanged(object sender, EventArgs e)
         {
-            SendCommand(CMD.SETI);
+            SendCommand(CMD.SETPID);
         }
 
         private void nudD_ValueChanged(object sender, EventArgs e)
         {
-            SendCommand(CMD.SETD);
+            SendCommand(CMD.SETPID);
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        private void AsyncText(Control obj, string text, int append = 0)
         {
-            //Get current device state
-            SendCommand(CMD.REQSPEED);
-            SendCommand(CMD.REQCSV_PID);
+            if (append == 0)
+            {
+                obj.Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
+            }
+            else if(append == 1)
+            {
+                obj.Invoke(new Action<string>(n => obj.Text += n), new object[] { text });
+            }
+            else
+            {
+                obj.Invoke(new Action<string>(n => obj.Text = n + obj.Text), new object[] { text });
+            }
+        }
+
+        private void AsyncText(ToolStripLabel obj, string text)
+        {
+            obj.GetCurrentParent().Invoke(new Action<string>(n => obj.Text = n), new object[] { text });
+        }
+
+        private void AsyncNUD(NumericUpDown obj, decimal value)
+        {
+            obj.Invoke(new Action<decimal>(n => obj.Value = value), new object[] { value });
+        }
+
+        private void AsyncColor(Control obj, Color color)
+        {
+            obj.Invoke(new Action(() => obj.BackColor = color));
+        }
+
+        private void AsyncDisable(Control obj, bool disable = true)
+        {
+            obj.Invoke(new Action(() => obj.Enabled = !disable));
+        }
+
+        public void Msg(string msg)
+        {
+            MessageBox.Show(msg);
+        }
+
+        private void closeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Close();
         }
 
         private void button1_Click(object sender, EventArgs e)
         {
-            SendCommand(CMD.TEST);
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog())
+            {
+                if (tbxLogPath.Text.Trim() != "") {
+                    fbd.SelectedPath = tbxLogPath.Text;
+                }
+
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    tbxLogPath.Text = fbd.SelectedPath;
+                }
+
+            }
         }
+
+        private void btnReset_Click(object sender, EventArgs e)
+        {
+            ProcessACK(CMD.STOP);
+        }
+
+        private void graphToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Not implemented yet");
+        }
+
+        private void cbxPort_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            serialPort1.PortName = cbxPort.SelectedItem.ToString();
+        }
+
     }
 }
 

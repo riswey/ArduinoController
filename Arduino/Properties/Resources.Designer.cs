@@ -59,5 +59,15 @@ namespace Arduino.Properties {
                 resourceCulture = value;
             }
         }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
+        internal static System.Drawing.Bitmap FolderBrowserDialogControl_678_24 {
+            get {
+                object obj = ResourceManager.GetObject("FolderBrowserDialogControl_678_24", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
     }
 }
