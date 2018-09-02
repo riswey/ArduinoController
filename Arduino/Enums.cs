@@ -22,21 +22,23 @@ namespace Arduino
         GETROTORFREQ,       //CF
         GETTARGETFREQ,      //FW
         GETMINMAXPERIODS,   //MM
-        GETPID              //PID
+        GETPID,             //PID
+        GETLOCKABLE
     };
 
     enum DATATYPES          //return packets
     {
+        ACK,                 //ACK (response to S commands)
         GETPULSEDELAY,      //PW
         GETROTORFREQ,       //CF
         GETTARGETFREQ,      //FW
         GETMINMAXPERIODS,   //MM
         GETPID,             //PID
-        ACK                 //ACK (response to S commands)
+        GETLOCKABLE         //Ready to be locked
     }
 
     //State enums
-    enum STATE { Ready = 0, Running, Locked, Unlocked }       //2 bit
+    enum STATE { Ready = 0, Running, Lockable, Locked }       //2 bit
     enum EVENT { Start = 0, Stop, Lock, Unlock }              //2 bit
 
     class Enums
@@ -48,12 +50,13 @@ namespace Arduino
         //These are the serial codes for packets returned by the calling GET statements
         public static readonly Dictionary<string, DATATYPES> DATATYPEDecode = new Dictionary<string, DATATYPES>()
         {
+            { "ACK", DATATYPES.ACK },
             { "PW", DATATYPES.GETPULSEDELAY },
             { "CF", DATATYPES.GETROTORFREQ },
             { "FW", DATATYPES.GETTARGETFREQ },
             { "PID", DATATYPES.GETPID },
             { "MM", DATATYPES.GETMINMAXPERIODS },
-            { "ACK", DATATYPES.ACK }
+            { "RL", DATATYPES.GETLOCKABLE },
         };
 
         public static readonly Dictionary<CMD, string> CMDEncode = new Dictionary<CMD, string>()
@@ -70,7 +73,8 @@ namespace Arduino
             {CMD.GETROTORFREQ, "RC" },
             {CMD.GETTARGETFREQ, "RF" },
             {CMD.GETMINMAXPERIODS, "RM" },
-            {CMD.GETPID, "RP" }
+            {CMD.GETPID, "RP" },
+            {CMD.GETLOCKABLE, "RL" }
         };
 
         private static Dictionary<string, CMD> _CMDDecode { get; set; } = null;

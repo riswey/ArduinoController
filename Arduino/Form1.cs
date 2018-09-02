@@ -9,26 +9,26 @@ namespace Arduino
 {
     public partial class Form1 : Form
     {
-        //TestSerialPort serialPort1 = new TestSerialPort();
+        //TestSerialPort serialPort1;
         SerialPort serialPort1 = new SerialPort();
    
         string TERMINAL = "\n";
         STATE state = STATE.Ready;
         Task task = null;
-        ParameterState log = new ParameterState();
+        ParameterState parameters = new ParameterState();
 
         public Form1()
         {
             InitializeComponent();
+
+            //serialPort1 = new TestSerialPort(this);
+            serialPort1 = new SerialPort();
 
             serialPort1.PortName = SearchPorts();
 
             serialPort1.BaudRate = 9600;
             serialPort1.Open();
             serialPort1.DiscardInBuffer();  //clear anything
-
-            //testing
-            //serialPort1.parentfm = this;
 
         }
 
@@ -52,7 +52,6 @@ namespace Arduino
             cbxPort.SelectedIndex = cbxPort.Items.Count - 1;
 
             return cbxPort.SelectedItem.ToString();
-
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -67,44 +66,54 @@ namespace Arduino
             //Get current device state
             SendCommand(CMD.GETPID);
             AsyncText(lblState, state.ToString());
-
         }
 
         private void ProcessEvent(EVENT e) {
-
-            int matrix = ((byte)e << 2 | (byte)state);
-            //matrix 0...15            
-
-            //enum STATE { Ready = 0000, Running    = 0001, Locked  = 0010, Unlocked    = 0011}       //2 bit
-            //enum EVENT { Start = 0000, Stop       = 0100, Lock    = 1000, Unlock      = 1100}       //2 bit
-
-            switch (matrix)
+            switch (e)
             {
-                case 0:     //Start + Ready
-                    ChangeState(EVENT.Start);
+                case EVENT.Start:
+                    switch (state)
+                    {
+                        case STATE.Ready:
+                            ChangeState(EVENT.Start);
+                            break;
+                        case STATE.Lockable:
+                            ChangeState(EVENT.Lock);
+                            break;
+                        case STATE.Locked:
+                            ChangeState(EVENT.Unlock);
+                            break;
+                    }
                     break;
-                case 1:     //Start + Running
-                    ChangeState(EVENT.Lock);
+
+                case EVENT.Lock:
+                    switch (state)
+                    {
+                        case STATE.Lockable:
+                            ChangeState(EVENT.Lock);
+                            break;
+                    }
                     break;
-                case 2:     //Start + Locked
-                    ChangeState(EVENT.Unlock);
+                case EVENT.Unlock:
+                    switch (state)
+                    {
+                        case STATE.Locked:
+                            ChangeState(EVENT.Unlock);
+                            break;
+                    }
                     break;
-                case 3:     //Start + UnLocked
-                    ChangeState(EVENT.Lock);
-                    break;
-                case 5:     //Stop + Running
-                case 6:     //Stop + Locked
-                case 7:     //Stop + Unlocked
-                    ChangeState(EVENT.Stop);
-                    break;
-                case 9:     //Lock + Running
-                case 11:    //Lock + Unlocked
-                    ChangeState(EVENT.Lock);
-                    break;
-                case 14:    //Unlock + Locked
-                    ChangeState(EVENT.Unlock);
+                case EVENT.Stop:
+                    switch (state)
+                    {
+                        case STATE.Running:
+                        case STATE.Lockable:
+                        case STATE.Locked:
+                            ChangeState(EVENT.Stop);
+                            break;
+                    }
                     break;
             }
+
         }
 
         private void ChangeState(EVENT e)
@@ -134,7 +143,8 @@ namespace Arduino
             {
                 case CMD.START:
                     timer1.Start();
-                    log.Start();
+                    parameters.Start();
+                    parameters.StartRMTimer();
                     state = STATE.Running;
                     AsyncColor(btnStart, Color.Orange);
                     //Task task = Task.Delay(5000).ContinueWith(t => ProcessEvent(EVENT.Lock));
@@ -160,7 +170,7 @@ namespace Arduino
                     AsyncDisable(this.btnSetSpeed);
                     break;
                 case CMD.SETUNLOCK:
-                    state = STATE.Unlocked;
+                    state = STATE.Lockable;
                     AsyncText(btnStart, "Lock");
                     AsyncColor(btnStart, Color.Orange);
                     AsyncDisable(this.btnSetSpeed, false);
@@ -172,6 +182,7 @@ namespace Arduino
                     AsyncText(toolStripStatusLabel1, "PID set.");
                     break;
                 case CMD.SETFREQ:
+                    parameters.StartRMTimer();
                     AsyncText(toolStripStatusLabel1, "Target Rotor Frequency set.");
                     break;
             }
@@ -238,35 +249,56 @@ namespace Arduino
 
             switch (cmd)
             {
+                case DATATYPES.ACK:
+                    CMD ackcmd = Enums.CMDDecode[data[1]];
+                    ProcessACK(ackcmd);
+                    break;
                 case DATATYPES.GETPULSEDELAY:
-                    log.pulse_delay = int.Parse(data[1]);
+                    parameters.pulse_delay = int.Parse(data[1]);
                     AsyncText(lblPulseDelay, data[1]);
                     break;
                 case DATATYPES.GETTARGETFREQ:
-                    log.target_speed = float.Parse(data[1]);
+                    parameters.target_speed = float.Parse(data[1]);
                     AsyncNUD(nudDesireSpeed, Decimal.Parse(data[1]));
                     break;
                 case DATATYPES.GETROTORFREQ:
-                    log.rotor_speed = float.Parse(data[1]);
+                    parameters.rotor_speed = float.Parse(data[1]);
                     AsyncText(lblCurrentSpeed, data[1]);
                     break;
                 case DATATYPES.GETMINMAXPERIODS:
-                    log.min_period = long.Parse(data[1]);
-                    log.max_period = long.Parse(data[2]);
-                    AsyncText(lblMinRotorPeriod, data[1]);
-                    AsyncText(lblMaxRotorPeriod, data[2]);
+                    parameters.min_period = long.Parse(data[1]);
+                    parameters.max_period = long.Parse(data[2]);
+                    if (parameters.IsMMInRange())
+                    {
+                        AsyncText(lblMinRotorPeriod, data[1]);
+                        AsyncText(lblMaxRotorPeriod, data[2]);
+                    } else
+                    {
+                        AsyncText(lblMinRotorPeriod, "-");
+                        AsyncText(lblMaxRotorPeriod, "-");
+                    }
                     break;
                 case DATATYPES.GETPID:
-                    log.p = float.Parse(data[1]);
-                    log.i = float.Parse(data[2]);
-                    log.d = float.Parse(data[3]);
+                    parameters.p = float.Parse(data[1]);
+                    parameters.i = float.Parse(data[2]);
+                    parameters.d = float.Parse(data[3]);
                     AsyncNUD(nudP, Decimal.Parse(data[1]) );
                     AsyncNUD(nudI, Decimal.Parse(data[2]) );
                     AsyncNUD(nudD, Decimal.Parse(data[3]) );
                     break;
-                case DATATYPES.ACK:
-                    CMD ackcmd = Enums.CMDDecode[data[1]];
-                    ProcessACK( ackcmd );
+                case DATATYPES.GETLOCKABLE:
+                    bool lockable = bool.Parse(data[1]);
+                    if (lockable)
+                    {
+                        /* This is a weird one.
+                         * Making it unlockable is exacly the same process as Unlock
+                         * Yet normally Unlock is prompted by a START press
+                         * -> Serial communication by the Event handler
+                         * But here the Serial Comms is result of an RL command
+                         * So if true -> just need to Simulate the ACK of an SU (set unlock)
+                         */
+                        ProcessACK(CMD.SETUNLOCK);
+                    }
                     break;
                 default:
                     AsyncText(toolStripStatusLabel1, "Unknown Packet: " + packet );
@@ -297,14 +329,26 @@ namespace Arduino
         int timercycle = 0;
         private void timer1_Tick(object sender, EventArgs e)
         {
-            SendCommand(CMD.GETROTORFREQ);
-            if ((timercycle = (++timercycle) % 4) == 0)
+            if (state == STATE.Running)
             {
-                SendCommand(CMD.GETMINMAXPERIODS);
-                SendCommand(CMD.GETPULSEDELAY);
-                SendCommand(CMD.GETPID);
-                SendCommand(CMD.GETTARGETFREQ);
-                log.Write();
+                //If started but not entered lock cycle yet -> poll to see if lockable
+                SendCommand(CMD.GETLOCKABLE);
+            }
+
+            SendCommand(CMD.GETROTORFREQ);
+
+            //Log if 4th tick AND Max/Min are meaningful
+            if ((timercycle = (++timercycle) % 4) == 0 )
+            {
+                if (parameters.IsRMDisabled())
+                {
+                    //RM (min/max) disable period expired
+                    SendCommand(CMD.GETMINMAXPERIODS);
+                    SendCommand(CMD.GETPULSEDELAY);
+                    SendCommand(CMD.GETPID);
+                    SendCommand(CMD.GETTARGETFREQ);
+                    parameters.Write();
+                }
             }
 
         }

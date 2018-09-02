@@ -52,18 +52,24 @@ namespace Arduino
             d = 0,
             locked = false,
             target_f = 0,
-            min = 1,
-            max = 5
+            min = (long) 1E7,
+            max = 0
         };
 
         Random r = new Random();
 
-        public Form1 parentfm;
+        private Form1 parentfm;
 
         private string buffer = "";
 
         public int BaudRate { get; set; }
         public string PortName { get; set; }
+
+        public TestSerialPort(Form1 parentfm)
+        {
+            this.parentfm = parentfm;
+        }
+
         public bool IsOpen { get { return true; } }
         public void Open() { }
         public void DiscardInBuffer() { }
@@ -75,6 +81,8 @@ namespace Arduino
             parentfm.serialPort1_DataReceived(this, null);
         }
 
+
+        int maxmin = 0;
         public void Write(string packet)
         {
             //What CMD did I just get asked to do
@@ -140,7 +148,18 @@ namespace Arduino
                     Send(String.Format("PID {0} {1} {2}", state.p, state.i, state.d));
                     break;
                 case CMD.GETMINMAXPERIODS:
-                    Send(String.Format("MM {0} {1}",state.min, state.max));
+                    if (maxmin++ > 5)
+                    {
+                        state.min = r.Next(0, 10);
+                        state.max = r.Next(0, 10);
+                    }
+
+                    Send(String.Format("MM {0} {1}", state.min, state.max));
+
+                    break;
+                case CMD.GETLOCKABLE:
+                    //If state.running = 2 then lockable. Answer true
+                    Send(String.Format("RL {0}", state.running == 2));
                     break;
                 default:
                     parentfm.Msg("Unknown packet: " + cmd);
